@@ -389,8 +389,8 @@ if __name__ == "__main__":
 
 
     filter_criteria = getFilterCriteriaFromFile('FilterCriteria.xlsx')
-    IS_object = FileDataFrame('IS_New.txt', '\t')
-    OS_object = FileDataFrame('OOS_New.txt', '\t')
+    IS_object = FileDataFrame('IS.txt', '\t')
+    OS_object = FileDataFrame('OOS.txt', '\t')
     IS_object.readDataFrameFromFile()
     IS_object.renameColumnsOfDataFrame()
     OS_object.readDataFrameFromFile()
