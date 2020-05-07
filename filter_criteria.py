@@ -10,6 +10,12 @@ if len(sys.argv) != 3:
     exit(0)
 Start_Date = sys.argv[1]
 End_Date = sys.argv[2]
+# Start_Date = '31/12/2015'
+# End_Date = '30/12/2016'
+OOS_Percent = 0.2
+IS_Percent = 1 - OOS_Percent
+Duplicity_Field_Weighting = 1.5
+Duplicity_Candidate_Count = 100
 
 # define Columns of DataFrame for each Data
 Candidate_Attribute_Columns = ['POI_Switch', 'NATR', 'Fract', 'Filter1_Switch', 'Filter1_N1', 'Filter1_N2', 'Filter2_Switch', 'Filter2_N1', 'Filter2_N2']
@@ -35,7 +41,6 @@ class FilterCriteria(object):
     def __init__(self, Start_Date=Start_Date, End_date=End_Date, IS_NP = 0, OOS_NP = 0, OOS_IS_Avg_Trade=80, 
                  ALL_Robustness_Index = 80, ALL_NP_DD_Ratio = 2, IS_Avg_Trade = 60, IS_Trades_Per_Year = 40,
                 OOS_Trades_Per_Year = 40, OOS_Total_Trades = 10, Duplicity= 90):
-        print(Start_Date)
         self.Start_Date             = Start_Date
         self.End_date               = End_date
         self.IS_NP                  = IS_NP
@@ -116,9 +121,15 @@ class Candidate_IS_Data(object):
             # 'IS_Start_Date'            : self.IS_Start_Date,
             # 'IS_End_Date'              : self.IS_End_Date,
         }
-    def calcDuplicity(self):
-        print(self.Test)
-
+    # calculate NPR
+    def calcNPR(self, other):
+        # 1 - (Abs(NP1 - NP2) / NP1)
+        return 1 - float(abs(self.IS_Net_Profit - other.IS_Net_Profit)) / self.IS_Net_Profit
+    
+    # calculate TTR
+    def calcTTR(self, other):
+        # 1 - (Abs(TT1 - TT2) / TT1)
+        return 1 - float(abs(self.IS_Total_Trades - other.IS_Total_Trades)) / self.IS_Total_Trades
 
 # Class of Candidate Value from OS Data
 class Candidate_OS_Data(object):
@@ -174,6 +185,28 @@ class Candidate_Attribute(object):
             'Start_Date'        : self.Start_Date,
             'End_Date'          : self.End_Date,
         }
+    def calcIDV(self, other):
+        different_attributs = 0
+        # check if each attribute equals to other one
+        if self.POI_Switch          != other.POI_Switch:
+            different_attributs += 1
+        if self.NATR                != other.NATR:
+            different_attributs += 1
+        if self.Fract               != other.Fract:
+            different_attributs += 1
+        if self.Filter1_Switch      != other.Filter1_Switch:
+            different_attributs += 1
+        if self.Filter1_N1          != other.Filter1_N1:
+            different_attributs += 1
+        if self.Filter1_N2          != other.Filter1_N2:
+            different_attributs += 1
+        if self.Filter2_Switch      != other.Filter2_Switch:
+            different_attributs += 1
+        if self.Filter2_N1          != other.Filter2_N1:
+            different_attributs += 1
+        if self.Filter2_N2          != other.Filter2_N2:
+            different_attributs += 1    
+        return 100 - different_attributs * Duplicity_Field_Weighting
 
 # Class Candidate from IS and OS
 class Candidate(Candidate_Attribute, Candidate_IS_Data, Candidate_OS_Data):
@@ -195,7 +228,7 @@ class Candidate(Candidate_Attribute, Candidate_IS_Data, Candidate_OS_Data):
         if float(self.OS_Avg_Trade) / float(self.IS_Avg_Trade) * 100<= filterCriteria.ALL_Robustness_Index :
             return False
         # 4. ALL: Robustness Index > ALL_Robustness_Index
-        if self.get_ALL_Robustness_Index(self.Start_Date, self.End_Date, 0.8, 0.2) <= filterCriteria.ALL_Robustness_Index:
+        if self.get_ALL_Robustness_Index(self.Start_Date, self.End_Date, IS_Percent, OOS_Percent) <= filterCriteria.ALL_Robustness_Index:
             return False
         # 5. ALL: NP:DD Ratio > ALL_NP_DD_Ratio . Calculation:
         #    a. ALL: NP = IS Net Profit + OOS Net Profit
@@ -208,11 +241,11 @@ class Candidate(Candidate_Attribute, Candidate_IS_Data, Candidate_OS_Data):
             return False
         # 7. IS: Avg trades num per year > IS_Trades_Per_Year . 
         # Ie the average number of trades per year (365 days) should be greater than 40
-        if self.get_Avg_trades_per_year(self.Start_Date, self.End_Date, self.IS_Total_Trades, 0.8) <= filterCriteria.IS_Trades_Per_Year:
+        if self.get_Avg_trades_per_year(self.Start_Date, self.End_Date, self.IS_Total_Trades, IS_Percent) <= filterCriteria.IS_Trades_Per_Year:
             return False
         # 8. OOS: Avg trades num per year > OOS_Total_Trades . 
         # Ie the average number of trades per year (365 days) should be greater than 40
-        if self.get_Avg_trades_per_year(self.Start_Date, self.End_Date, self.OS_Avg_Trade, 0.2) <= filterCriteria.OOS_Trades_Per_Year:
+        if self.get_Avg_trades_per_year(self.Start_Date, self.End_Date, self.OS_Total_Trades, OOS_Percent) <= filterCriteria.OOS_Trades_Per_Year:
             return False
         # 9. OOS: Total Trades > OOS_Total_Trades
         if self.OS_Total_Trades <= filterCriteria.OOS_Total_Trades:
@@ -258,6 +291,13 @@ class Candidate(Candidate_Attribute, Candidate_IS_Data, Candidate_OS_Data):
         Max_DD = max(abs(self.IS_Max_Intraday_Drawdown), abs(self.OS_Max_Intraday_Drawdown))
         Ratio = float(All_NP) / Max_DD
         return Ratio
+    def calcDuplicity(self, other):
+        IDV = self.calcIDV(other)
+        NPR = self.calcNPR(other)
+        TTR = self.calcTTR(other)
+        return round(IDV * NPR * TTR)
+
+
 
 # Read Data file and Create DataFrame
 class FileDataFrame(object):
@@ -362,7 +402,7 @@ def buildCandidateByTEST(IS_object, OS_object):
     Candidates_df = pd.concat([new_IS_df.set_index('Test'), new_OS_df.set_index('Test')], axis=1, join='inner')
     Candidates_df['Test'] = Candidates_df.index
     # store Candidates into file
-    Candidates_df.to_excel('candidates.xlsx', sheet_name='candidates')
+    # Candidates_df.to_excel('candidates.xlsx', sheet_name='candidates')
     return Candidates_df
 
 # pass Filter Criteria
@@ -380,17 +420,66 @@ def passFilterCriteria(df, criteria):
     # convert Dictionary list into DataFrame
     passed_df = pd.DataFrame(passed_candidates)
     # sort passed DataFrame by IS TS Index descending order
-    passed_df = passed_df.sort_values(['IS_TS_Index'], ascending=False, ignore_index=True)
+    passed_df = passed_df.sort_values(['IS_TS_Index', 'IS_Avg_Trade', 'IS_Profitable'], ascending=[False, False, False], ignore_index=True)
     # Candidates_df.to_excel('PassedCandidates.xlsx', sheet_name='candidates')
     return passed_df
+# pass duplicity
 def passDulicity(df, criteria):
-    pass
+    # loop dataframe
+    # convert DataFrame into Dictionary list
+    df_dict = df.T.to_dict().values()
+    df_list = list(df_dict)
+    duplicity_list = []
+    index_list = []
+    for i, row in enumerate(df_list): # loop Dictionary list
+        # get Candidate object from Dictionary item
+        ob = Candidate.fromDict(row)
+        # get start and end position from current position
+        start_p, end_p = getBoundaryOfCandidate(i, len(df_list))
+        k = start_p 
+        max_index = 0
+        max_duplicity = 0 # max duplicity value
+        while k <= end_p: # loop from start to end position of Candidates
+            if k != i: # shouldn't compare with self
+                # convert dict_values to list and get kth list
+                # get Candidate Class object
+                other = Candidate.fromDict(df_list[k])
+                # calcuate Duplicity
+                duplicity = ob.calcDuplicity(other)
+                # update max duplicity
+                if duplicity > max_duplicity:
+                    max_duplicity = duplicity
+                    max_index = other.Test
+            k += 1
+        duplicity_list.append(max_duplicity)
+        index_list.append(max_index)
+    # Add Duplicity Column in DataFrame
+    df['Duplicity'] = duplicity_list
+    df['Duplicity_Index'] = index_list
+    return df
+# calc boundary of current Candidate, i.e. start position and end position
+def getBoundaryOfCandidate(index, length):
+    delta = int(Duplicity_Candidate_Count / 2)
+    start = index- delta
+    end = index + delta
+    if length -1 < Duplicity_Candidate_Count:
+        return 0, length-1
+    if start < 0:
+        start = 0
+        offset = delta - index
+        end = min(end + offset, length -1)
+        return start, end
+    if end > length - 1:
+        offset = end - length + 1
+        start = max(length-1-delta, start - offset)
+        end = length - 1
+    return start, end
+
 if __name__ == "__main__":
 
-
     filter_criteria = getFilterCriteriaFromFile('FilterCriteria.xlsx')
-    IS_object = FileDataFrame('IS_New.txt', '\t')
-    OS_object = FileDataFrame('OOS_New.txt', '\t')
+    IS_object = FileDataFrame('IS.txt', '\t')
+    OS_object = FileDataFrame('OOS.txt', '\t')
     IS_object.readDataFrameFromFile()
     IS_object.renameColumnsOfDataFrame()
     OS_object.readDataFrameFromFile()
@@ -398,8 +487,7 @@ if __name__ == "__main__":
     Candidates_df = buildCandidateByTEST(IS_object, OS_object)
     Passed_df = passFilterCriteria(Candidates_df, filter_criteria)
     Passed_df.to_excel('PassedCandidates.xlsx', sheet_name='candidates')
-
-
-"FilterCriteria.xlsx"
+    Duplicity_df = passDulicity(Passed_df, filter_criteria)
+    Duplicity_df.to_excel('PassedDuplicity.xlsx', sheet_name='Duplicity')
 
 
