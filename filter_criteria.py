@@ -429,8 +429,8 @@ def buildCandidateByTEST(IS_object, OS_object):
     renameCandidateDataFrame(new_OS_df, NEW_Candidate_OS_Data_Columns)
     # get Candidates DataFrame by concatenating IS and OS DataFrame using Test key
     Candidates_df = pd.concat([new_IS_df.set_index('Test'), new_OS_df.set_index('Test')], axis=1, join='inner')
-    # Candidates_df = Candidates_df.round(2)
-    Candidates_df['Test'] = Candidates_df.index
+    Candidates_df = Candidates_df.round(2)
+    Candidates_df.insert(0, column ='Test', value = Candidates_df.index)
     Candidates_df = Candidates_df.reset_index(drop=True)
     #, 'IS_Avg_Trade', 'IS_Profitable'
     Candidates_df = Candidates_df.sort_values(['IS_TS_Index', 'Test'], ascending=[False, True], ignore_index=True)
@@ -457,7 +457,7 @@ def passFilterCriteria(df, criteria):
     passed_df = pd.DataFrame(passed_candidates)
     passed_df['All_Robustness_Index'] = All_Robustness_Index_List
     # sort passed DataFrame by IS TS Index descending order
-    passed_df = passed_df.sort_values(['IS_TS_Index', 'IS_Avg_Trade', 'IS_Profitable'], ascending=[False, False, False], ignore_index=True)
+    passed_df = passed_df.sort_values(['IS_TS_Index', 'Test', 'IS_Avg_Trade', 'IS_Profitable'], ascending=[False, True, False, False], ignore_index=True)
     # check Duplicity < 90
     passed_df = passed_df.query("Duplicity<90").reset_index(drop=True)
     return passed_df
@@ -493,7 +493,7 @@ def calcDulicity(df, criteria):
             k += 1
         duplicity_list.append(max_duplicity)
     # Add Duplicity Column in DataFrame
-    df['Duplicity'] = duplicity_list
+    df.insert(loc=1, column ='Duplicity', value= duplicity_list)
     return df
 # calc boundary of current Candidate, i.e. start position and end position
 def getBoundaryOfCandidate(index, length):
