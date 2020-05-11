@@ -475,7 +475,7 @@ def passFilterCriteria(df, criteria):
     # convert Dictionary list into DataFrame
     passed_df = pd.DataFrame(passed_candidates)
     passed_df['All_Robustness_Index'] = All_Robustness_Index_List
-    
+
     # check Duplicity < 90
     passed_df = passed_df.query("Duplicity<90").reset_index(drop=True)
 
@@ -489,11 +489,11 @@ def passFilterCriteria(df, criteria):
 
     # sort passed DataFrame by IS Profitable descending order
     # and get top 30 candidates
-    IS_Profitable_df = passed_df.sort_values(['IS_Profitable'], ascending=False, ignore_index=True).head(30)
+    IS_ProfitFactor_df = passed_df.sort_values(['IS_ProfitFactor'], ascending=False, ignore_index=True).head(30)
 
     # Build final single unique candidate list
     # concatenate three dataframes into one dataframe by remove duplicated candidates
-    passed_df = pd.concat([IS_TS_Index_df, IS_Avg_Trade_df, IS_Profitable_df]).drop_duplicates().reset_index(drop=True)
+    passed_df = pd.concat([IS_TS_Index_df, IS_Avg_Trade_df, IS_ProfitFactor_df]).drop_duplicates().reset_index(drop=True)
 
     return passed_df
 # pass duplicity
