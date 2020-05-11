@@ -497,7 +497,7 @@ def passFilterCriteria(df, criteria):
 
     return passed_df
 # pass duplicity
-def calcDulicity(df, criteria):
+def calcDuplicity(df, criteria):
     # loop dataframe
     # convert DataFrame into Dictionary list
     df_dict = df.T.to_dict().values()
@@ -688,7 +688,7 @@ if __name__ == "__main__":
     Candidates_df = buildCandidateByTEST(IS_object, OS_object)
 
     # Calculate Duplicity
-    Duplicity_df = calcDulicity(Candidates_df, filter_criteria)
+    Duplicity_df = calcDuplicity(Candidates_df, filter_criteria)
     # storeDataFrameInDB('calcDuplicity.xlsx', Duplicity_df, 'duplicity', Server_Type)
     
     # Pass Filter Criteria
