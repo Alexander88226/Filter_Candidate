@@ -29,10 +29,11 @@ if Server_Type != 'excel' and Server_Type != 'mysql' and Server_Type != 'postgre
 OOS_Percent = 0.2
 IS_Percent = 1 - OOS_Percent
 Duplicity_Candidate_Count = 100
+IS_Result_File = 'IS.txt'
+OOS_Result_File = 'OOS.txt'
 
 
-
-# DataBase Name
+# Database Name
 DB_Name = 'candidatesdb'
 # Table Name
 FilterCriteria_TableName = "filtercriteria"
@@ -574,9 +575,9 @@ def compare_string2(s1, s2, maxOffset=15):
         diff = float(len(s1) + len(s2)) / 2 - count
     return diff
 
-# Create DataBase for mysql and postgresql
-def createDataBase(server_type):
-    cnx = connectDataBase(server_type)
+# Create Database for mysql and postgresql
+def createDatabase(server_type):
+    cnx = connectDatabase(server_type)
     if server_type == 'mysql':
         try:
             cursor = cnx.cursor()
@@ -607,7 +608,7 @@ def createDataBase(server_type):
                 cnx.close()
 
 # connect Database of MySQL and PostgreSQL
-def connectDataBase(server_type, db_name=""):
+def connectDatabase(server_type, db_name=""):
     cnx = None
     if server_type == 'mysql':
         config = {
@@ -642,7 +643,7 @@ def checkExistsFilterCriteria(file_path, server_type):
     if server_type == 'excel':
         return os.path.exists(file_path)
     else: # server_type == 'mysql' or server_type == 'postgre':
-        conn = connectDataBase(server_type, db_name=DB_Name)
+        conn = connectDatabase(server_type, db_name=DB_Name)
         if server_type == 'mysql':
             cur = conn.cursor(buffered=True)
         else:
@@ -669,16 +670,16 @@ def storeDataFrameInDB(file_path, dataframe, table_name, server_type):
 
 if __name__ == "__main__":
 
-    # create DataBase
+    # create Database
     if Server_Type == 'mysql' or Server_Type == 'postgre':
-        createDataBase(Server_Type)
+        createDatabase(Server_Type)
 
     # Load Filter Criteria
     filter_criteria = getFilterCriteriaFromDB('FilterCriteria.xlsx', Server_Type)
 
     # Read IS and OOS file
-    IS_object = FileDataFrame('IS.txt', '\t')
-    OS_object = FileDataFrame('OOS.txt', '\t')
+    IS_object = FileDataFrame(IS_Result_File, '\t')
+    OS_object = FileDataFrame(OOS_Result_File, '\t')
     IS_object.readDataFrameFromFile()
     IS_object.renameColumnsOfDataFrame()
     OS_object.readDataFrameFromFile()
@@ -693,7 +694,7 @@ if __name__ == "__main__":
     
     # Pass Filter Criteria
     Passed_df = passFilterCriteria(Duplicity_df, filter_criteria)
-    # Store passed candidates into DataBase
+    # Store passed candidates into Database
     storeDataFrameInDB('PassedCandidates.xlsx',  Passed_df, Candidates_TableName, Server_Type)
 
 
