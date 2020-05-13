@@ -571,6 +571,6 @@ if __name__ == "__main__":
     # Pass Filter Criteria
     Passed_df = passFilterCriteria(Duplicity_df, filter_criteria)
     # Store passed candidates into DataBase
-    storeDataFrameInDB('PassedCandidates.xlsx',  Passed_df, Candidates_TableName, Server_Type)
+    storeDataFrameInDB('passed_candidates.xlsx',  Passed_df, Candidates_TableName, Server_Type)
 
 
