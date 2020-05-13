@@ -6,20 +6,27 @@ import codecs
 from dateutil.parser import parse
 from datetime import date
 from decimal import Decimal
+import mysql.connector as mysqlconnector
+from sqlalchemy import create_engine
+from psycopg2 import connect, DatabaseError
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from multiprocessing import Pool
 from multiprocessing import freeze_support
 from functools import partial
-
-from db_creation import FilterCriteria, createDataBase, getFilterCriteriaFromDB, storeDataFrameInDB, Candidates_TableName
 
 # check arguments length
 if len(sys.argv) != 3:
     exit(0)
 # first argv is Start Date
 # second one is End Date
-
 Start_Date = sys.argv[1]
 End_Date = sys.argv[2]
+
+
+# default Server Type is MySQL
+# but if MySQL doesn't be installed or connection to MySQL is failed, Server Type will be excel and Candidates will be stored in Excel file
+
+Server_Type = "mysql"
 
 OOS_Percent = 0.2
 IS_Percent = 1 - OOS_Percent
@@ -27,12 +34,27 @@ Duplicity_Candidate_Count = 100
 IS_Result_File = 'IS.txt'
 OOS_Result_File = 'OOS.txt'
 
+
+# DataBase Name
+DB_Name = 'candidatesdb'
+# Table Name
+FilterCriteria_TableName = "filtercriteria"
+Candidates_TableName = "candidates"
+
+# MySQL configuration
+MySQL_User = 'root'
+MySQL_Password = 'vadim'
+MySQL_Host = '127.0.0.1'
+
+
 # define Columns of DataFrame for each Data
 Candidate_Attribute_Columns = ['POI_Switch', 'NATR', 'Fract', 'Filter1_Switch', 'Filter1_N1', 'Filter1_N2', 'Filter2_Switch', 'Filter2_N1', 'Filter2_N2']
 Candidate_Columns = ['POI_Switch', 'NATR', 'Fract', 'Filter1_Switch', 'Filter1_N1', 'Filter1_N2', 'Filter2_Switch', 'Filter2_N1', 'Filter2_N2', \
             'Test', 'IS_TS_Index', 'IS_Net_Profit', 'IS_Total_Trades', 'IS_Profitable', 'IS_Avg_Trade', 'IS_Max_Intraday_Drawdown', 'IS_ProfitFactor', 'IS_Robustness_Index', \
             'OS_Net_Profit', 'OS_Total_Trades', 'OS_Profitable', 'OS_Avg_Trade', 'OS_Max_Intraday_Drawdown', 'OS_ProfitFactor', 'OS_Robustness_Index']
 
+FilterCriteria_Columns = ['Start_Date', 'End_date', 'IS_NP', 'OOS_NP', 'OOS_IS_Avg_Trade', 'ALL_Robustness_Index', 'ALL_NP_DD_Ratio', 'IS_Avg_Trade', \
+        'IS_Trades_Per_Year', 'OOS_Trades_Per_Year', 'OOS_Total_Trades', 'Duplicity']
 
 Candidate_IS_Data_Columns = ['Test', 'TS Index', 'Net Profit', 'Total Trades', 'Profitable', 'Avg Trade', 'Max Intraday Drawdown', 'ProfitFactor', 'Robustness Index']
 New_Candidate_IS_Data_Columns = ['Test', 'IS_TS_Index', 'IS_Net_Profit', 'IS_Total_Trades', 'IS_Profitable', 'IS_Avg_Trade', 'IS_Max_Intraday_Drawdown', 'IS_ProfitFactor', 'IS_Robustness_Index']
@@ -40,6 +62,69 @@ New_Candidate_IS_Data_Columns = ['Test', 'IS_TS_Index', 'IS_Net_Profit', 'IS_Tot
 New_Candidate_IS_Data_Columns = Candidate_Attribute_Columns + New_Candidate_IS_Data_Columns
 Candidate_OS_Data_Columns = ['Test', 'Net Profit', 'Total Trades', 'Profitable', 'Avg Trade', 'Max Intraday Drawdown', 'ProfitFactor', 'Robustness Index']
 NEW_Candidate_OS_Data_Columns = ['Test', 'OS_Net_Profit', 'OS_Total_Trades', 'OS_Profitable', 'OS_Avg_Trade', 'OS_Max_Intraday_Drawdown', 'OS_ProfitFactor', 'OS_Robustness_Index']
+
+
+
+# Class of Filter Criteria
+class FilterCriteria(object):
+    # constructor
+    def __init__(self, IS_NP = 0, OOS_NP = 0, OOS_IS_Avg_Trade=80, 
+                 ALL_Robustness_Index = 80, ALL_NP_DD_Ratio = 2, IS_Avg_Trade = 60, IS_Trades_Per_Year = 40,
+                OOS_Trades_Per_Year = 40, OOS_Total_Trades = 10, Duplicity= 90):
+        self.IS_NP                  = IS_NP
+        self.OOS_NP                 = OOS_NP
+        self.OOS_IS_Avg_Trade       = OOS_IS_Avg_Trade
+        self.ALL_Robustness_Index   = ALL_Robustness_Index
+        self.ALL_NP_DD_Ratio        = ALL_NP_DD_Ratio
+        self.IS_Avg_Trade           = IS_Avg_Trade
+        self.IS_Trades_Per_Year     = IS_Trades_Per_Year
+        self.OOS_Trades_Per_Year    = OOS_Trades_Per_Year
+        self.OOS_Total_Trades       = OOS_Total_Trades
+        self.Duplicity              = Duplicity
+    
+    # build dictinary data from object
+    def to_dict(self):
+        return {
+            'IS_NP'                 : self.IS_NP,
+            'OOS_NP'                : self.OOS_NP,
+            'OOS_IS_Avg_Trade'      : self.OOS_IS_Avg_Trade,
+            'ALL_Robustness_Index'  : self.ALL_Robustness_Index,
+            'ALL_NP_DD_Ratio'       : self.ALL_NP_DD_Ratio,
+            'IS_Avg_Trade'          : self.IS_Avg_Trade,
+            'IS_Trades_Per_Year'    : self.IS_Trades_Per_Year,
+            'OOS_Trades_Per_Year'   : self.OOS_Trades_Per_Year,
+            'OOS_Total_Trades'      : self.OOS_Total_Trades,
+            'Duplicity'             : self.Duplicity,
+        }
+    
+    # set criteria from dataframe
+    def from_dataframe(self, dataframe):
+        self.criteria = dataframe
+
+    # store filter criteria into DB
+    def storeFilterCriteriaToDB(self, file_path, table_name="filtercriteria", server_type='excel', con=None):
+        if server_type == 'excel':
+            self.criteria.to_excel(file_path, sheet_name=table_name)
+        else: # server_type == 'mysql'
+            self.criteria.to_sql(table_name, con, if_exists='replace')
+    
+    # get filter criteria from Excel file
+    @classmethod
+    def getFilterCriteriaFromDB(cls, file_path, table_name="filtercriteria", server_type='excel', con=None):
+        exists = checkExistsFilterCriteria(file_path, server_type)
+        if exists:
+            if server_type == 'excel':
+                criteria = pd.read_excel(file_path, sheet_name=table_name)
+                return criteria            
+            else: # server_type == 'mysql' 
+                criteria = pd.read_sql("select * from " + FilterCriteria_TableName ,con=con)
+                return criteria
+        return None
+        
+    @classmethod
+    def fromDict(cls, d):
+        df = {k : v for k, v in d.items() if k in FilterCriteria_Columns}
+        return cls(**df)
 
 
 # Read Data file and Create DataFrame
@@ -90,7 +175,7 @@ def get_ALL_Robustness_Index(candidate, start, end, rate1=1, rate2=1):
 # calculate All:NP/DD
 '''
     ALL NP = IS Net Profit + OOS Net Profit
-    Max IS/OOS DD = whichever is greater: -1*(IS Max Intraday Drawdown) versus  -1*(OOS Max Intraday Drawdown)
+    Max IS/OOS DD = whichever is greater: -1*(IS Max Intraday Drawdown) versus -1*(OOS Max Intraday Drawdown)
     Ratio = ALL NP / Max IS/OOS DD
 '''
 def get_All_NP_DD(candidate):
@@ -147,7 +232,41 @@ def checkFilterCriteria(candidate, filterCriteria = FilterCriteria()):
 
     return True, round(Decimal(All_Robustness_Index),2)
 
+# get Filter Criteria from file
+def getFilterCriteriaFromDB(file_path, server_type):
+    # create engine to load and store dataframe with mysql
+    db_connection = createDBConnection(server_type)
+    # load Filter Criteria from DB    
+    criteria = FilterCriteria.getFilterCriteriaFromDB(file_path, FilterCriteria_TableName, server_type, db_connection)
+    if criteria is None: # if Filter Criteria File doesn't exist
+        # Create Default Filter Criteria
+        filter_criteria = FilterCriteria()
+        # get DataFrame from Default Filter Criteria
+        df = pd.DataFrame.from_records([filter_criteria.to_dict()])
+        filter_criteria.from_dataframe(df)
+        # store Filter Criteria into DataBase
+        filter_criteria.storeFilterCriteriaToDB(file_path, FilterCriteria_TableName, server_type, db_connection)
 
+    else: # if Filter Criteria exists, read it
+        # convert DataFrame to Class object
+        criteria_dict = criteria.T.to_dict().values()
+        for cri in criteria_dict:
+            filter_criteria = FilterCriteria.fromDict(cri)
+            filter_criteria.criteria = criteria
+            break
+    return filter_criteria
+
+# Create DB Connection engine
+def createDBConnection(server_type):
+    # generate db connection string
+    db_connection_str = ''
+    if server_type == 'excel':
+        return None
+    if server_type == 'mysql':
+        db_connection_str = 'mysql+mysqlconnector://{0}:{1}@{2}/{3}'.format(MySQL_User, MySQL_Password, MySQL_Host, DB_Name)
+    # create db connection
+    db_connection = create_engine(db_connection_str)
+    return db_connection
 
 # rename Candidate DataFrame with new column list
 def renameCandidateDataFrame(dataframe, columns):
@@ -362,18 +481,78 @@ def compare_string2(s1, s2, maxOffset=15):
         diff = float(len(s1) + len(s2)) / 2 - count
     return diff
 
+# Create DataBase for mysql
+def createDataBase(server_type):
+    cnx = connectDataBase(server_type)
+    if cnx is None:
+        global Server_Type
+        Server_Type = "excel"
+        return
+    if server_type == 'mysql':
+        try:
+            cursor = cnx.cursor()
+            # create database if not exists
+            cursor.execute('CREATE DATABASE IF NOT EXISTS ' + DB_Name)
+            cnx.commit()
+            cursor.close()
+        except mysqlconnector.Error as err:
+            print(err)
+            exit(0)
+        finally:
+            if cnx is not None:
+                cnx.close()
 
+# connect DataBase of MySQL
+def connectDataBase(server_type, db_name=""):
+    cnx = None
+    if server_type == 'mysql':
+        config = {
+        'user': MySQL_User,
+        'password': MySQL_Password,
+        'host': MySQL_Host,
+        }        
+        if db_name:
+            config['database'] = db_name
+        try:
+            cnx = mysqlconnector.connect(**config)
+        except mysqlconnector.Error as err:
+            print(err)
+            print("Candidates will be stored in Excel")
+    return cnx 
+# check if Filter Criteria table exists in file or database of MySQL
+def checkExistsFilterCriteria(file_path, server_type):
+    if server_type == 'excel':
+        return os.path.exists(file_path)
+    else: # server_type == 'mysql' 
+        conn = connectDataBase(server_type, db_name=DB_Name)
+        if server_type == 'mysql':
+            cur = conn.cursor(buffered=True)
+        else:
+            cur = conn.cursor()
+        cur.execute("select * from information_schema.tables where table_name=%s", (FilterCriteria_TableName,))
+        exists = cur.rowcount
+        cur.close()
+        conn.close()
+        return bool(exists)
         
 
+# store DataFrame in excel or MySQL
+def storeDataFrameInDB(file_path, dataframe, table_name, server_type):
+    db_connection = createDBConnection(server_type)
+    if server_type == 'excel':
+        dataframe.to_excel(file_path, sheet_name=table_name)
+    else: # server_type == 'mysql'
+        dataframe.to_sql(table_name, db_connection, if_exists='replace')
 
 if __name__ == "__main__":
     # for multiprocessing
     freeze_support()
     # create DataBase
-    createDataBase()
+    if Server_Type == 'mysql':
+        createDataBase(Server_Type)
 
     # Load Filter Criteria
-    filter_criteria = getFilterCriteriaFromDB('FilterCriteria.xlsx')
+    filter_criteria = getFilterCriteriaFromDB('FilterCriteria.xlsx', Server_Type)
 
     # Read IS and OOS file
     IS_object = FileDataFrame(IS_Result_File, '\t')
@@ -387,10 +566,11 @@ if __name__ == "__main__":
 
     # Calculate Duplicity
     Duplicity_df = calcDuplicity(Candidates_df, filter_criteria)
+    # storeDataFrameInDB('calcDuplicity.xlsx', Duplicity_df, 'duplicity', Server_Type)
 
     # Pass Filter Criteria
     Passed_df = passFilterCriteria(Duplicity_df, filter_criteria)
     # Store passed candidates into DataBase
-    storeDataFrameInDB('PassedCandidates.xlsx',  Passed_df, Candidates_TableName)
+    storeDataFrameInDB('PassedCandidates.xlsx',  Passed_df, Candidates_TableName, Server_Type)
 
 
