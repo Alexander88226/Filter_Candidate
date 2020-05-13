@@ -1,7 +1,5 @@
 import mysql.connector as mysqlconnector
 from sqlalchemy import create_engine
-from psycopg2 import connect, DatabaseError
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 import pandas as pd
 
 
@@ -76,7 +74,7 @@ class FilterCriteria(object):
 
 # get Filter Criteria from file
 def getFilterCriteriaFromDB(file_path):
-    # create engine to load and store dataframe with mysql and postgresql
+    # create engine to load and store dataframe with mysql
     db_connection = createDBConnection()
     # load Filter Criteria from DB    
     criteria = FilterCriteria.getFilterCriteriaFromDB(file_path, FilterCriteria_TableName, db_connection)
@@ -107,7 +105,7 @@ def createDBConnection():
     return db_connection
 
 
-# Create DataBase for mysql and postgresql
+# Create DataBase for mysql
 def createDataBase():
     cnx = connectDataBase()
     try:
