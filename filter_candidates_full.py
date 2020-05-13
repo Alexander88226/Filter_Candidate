@@ -42,8 +42,8 @@ FilterCriteria_TableName = "filtercriteria"
 Candidates_TableName = "candidates"
 
 # MySQL configuration
-MySQL_User = 'root'
-MySQL_Password = 'vadim'
+MySQL_User = 'user'
+MySQL_Password = 'password'
 MySQL_Host = '127.0.0.1'
 
 
