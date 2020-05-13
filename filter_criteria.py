@@ -36,7 +36,7 @@ IS_Result_File = 'IS.txt'
 OOS_Result_File = 'OOS.txt'
 
 
-# Database Name
+# DataBase Name
 DB_Name = 'candidatesdb'
 # Table Name
 FilterCriteria_TableName = "filtercriteria"
@@ -488,9 +488,9 @@ def compare_string2(s1, s2, maxOffset=15):
         diff = float(len(s1) + len(s2)) / 2 - count
     return diff
 
-# Create Database for mysql and postgresql
-def createDatabase(server_type):
-    cnx = connectDatabase(server_type)
+# Create DataBase for mysql and postgresql
+def createDataBase(server_type):
+    cnx = connectDataBase(server_type)
     if server_type == 'mysql':
         try:
             cursor = cnx.cursor()
@@ -522,8 +522,8 @@ def createDatabase(server_type):
             if cnx is not None:
                 cnx.close()
 
-# connect Database of MySQL and PostgreSQL
-def connectDatabase(server_type, db_name=""):
+# connect DataBase of MySQL and PostgreSQL
+def connectDataBase(server_type, db_name=""):
     cnx = None
     if server_type == 'mysql':
         config = {
@@ -560,7 +560,7 @@ def checkExistsFilterCriteria(file_path, server_type):
     if server_type == 'excel':
         return os.path.exists(file_path)
     else: # server_type == 'mysql' or server_type == 'postgre':
-        conn = connectDatabase(server_type, db_name=DB_Name)
+        conn = connectDataBase(server_type, db_name=DB_Name)
         if server_type == 'mysql':
             cur = conn.cursor(buffered=True)
         else:
@@ -583,9 +583,9 @@ def storeDataFrameInDB(file_path, dataframe, table_name, server_type):
 if __name__ == "__main__":
     # for multiprocessing
     freeze_support()
-    # create Database
+    # create DataBase
     if Server_Type == 'mysql' or Server_Type == 'postgre':
-        createDatabase(Server_Type)
+        createDataBase(Server_Type)
 
     # Load Filter Criteria
     filter_criteria = getFilterCriteriaFromDB('FilterCriteria.xlsx', Server_Type)
@@ -606,7 +606,7 @@ if __name__ == "__main__":
 
     # Pass Filter Criteria
     Passed_df = passFilterCriteria(Duplicity_df, filter_criteria)
-    # Store passed candidates into Database
+    # Store passed candidates into DataBase
     storeDataFrameInDB('PassedCandidates.xlsx',  Passed_df, Candidates_TableName, Server_Type)
 
 
