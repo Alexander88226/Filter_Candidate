@@ -15,19 +15,18 @@ from multiprocessing import freeze_support
 from functools import partial
 
 # check arguments length
-if len(sys.argv) != 4:
+if len(sys.argv) != 3:
     exit(0)
 # first argv is Start Date
 # second one is End Date
-# third one is Server Type : excel, mysql, postgre
-
 Start_Date = sys.argv[1]
 End_Date = sys.argv[2]
-Server_Type = sys.argv[3].lower()
-# check Server Type
-if Server_Type != 'excel' and Server_Type != 'mysql' and Server_Type != 'postgre':
-    print("Please input correct Server Type as one of excel, mysql, postgre")
-    exit(0)
+
+
+# default Server Type is MySQL
+# but if MySQL doesn't be installed or connection to MySQL is failed, Server Type will be excel and Candidates will be stored in Excel file
+
+Server_Type = "mysql"
 
 OOS_Percent = 0.2
 IS_Percent = 1 - OOS_Percent
@@ -47,10 +46,6 @@ MySQL_User = 'user'
 MySQL_Password = 'password'
 MySQL_Host = '127.0.0.1'
 
-# PostgreSQL configuration
-PostgreSQL_User = 'postgres'
-PostgreSQL_Password = 'password'
-PostgreSQL_Host = '127.0.0.1'
 
 # define Columns of DataFrame for each Data
 Candidate_Attribute_Columns = ['POI_Switch', 'NATR', 'Fract', 'Filter1_Switch', 'Filter1_N1', 'Filter1_N2', 'Filter2_Switch', 'Filter2_N1', 'Filter2_N2']
@@ -110,7 +105,7 @@ class FilterCriteria(object):
     def storeFilterCriteriaToDB(self, file_path, table_name="filtercriteria", server_type='excel', con=None):
         if server_type == 'excel':
             self.criteria.to_excel(file_path, sheet_name=table_name)
-        else: # server_type == 'mysql' or server_type == 'postgre':
+        else: # server_type == 'mysql'
             self.criteria.to_sql(table_name, con, if_exists='replace')
     
     # get filter criteria from Excel file
@@ -121,7 +116,7 @@ class FilterCriteria(object):
             if server_type == 'excel':
                 criteria = pd.read_excel(file_path, sheet_name=table_name)
                 return criteria            
-            else: # server_type == 'mysql' or server_type == 'postgre':
+            else: # server_type == 'mysql' 
                 criteria = pd.read_sql("select * from " + FilterCriteria_TableName ,con=con)
                 return criteria
         return None
@@ -180,7 +175,7 @@ def get_ALL_Robustness_Index(candidate, start, end, rate1=1, rate2=1):
 # calculate All:NP/DD
 '''
     ALL NP = IS Net Profit + OOS Net Profit
-    Max IS/OOS DD = whichever is greater: -1*(IS Max Intraday Drawdown) versus  -1*(OOS Max Intraday Drawdown)
+    Max IS/OOS DD = whichever is greater: -1*(IS Max Intraday Drawdown) versus -1*(OOS Max Intraday Drawdown)
     Ratio = ALL NP / Max IS/OOS DD
 '''
 def get_All_NP_DD(candidate):
@@ -239,7 +234,7 @@ def checkFilterCriteria(candidate, filterCriteria = FilterCriteria()):
 
 # get Filter Criteria from file
 def getFilterCriteriaFromDB(file_path, server_type):
-    # create engine to load and store dataframe with mysql and postgresql
+    # create engine to load and store dataframe with mysql
     db_connection = createDBConnection(server_type)
     # load Filter Criteria from DB    
     criteria = FilterCriteria.getFilterCriteriaFromDB(file_path, FilterCriteria_TableName, server_type, db_connection)
@@ -249,7 +244,7 @@ def getFilterCriteriaFromDB(file_path, server_type):
         # get DataFrame from Default Filter Criteria
         df = pd.DataFrame.from_records([filter_criteria.to_dict()])
         filter_criteria.from_dataframe(df)
-        # store Filter Criteria into Excel file
+        # store Filter Criteria into DataBase
         filter_criteria.storeFilterCriteriaToDB(file_path, FilterCriteria_TableName, server_type, db_connection)
 
     else: # if Filter Criteria exists, read it
@@ -269,8 +264,6 @@ def createDBConnection(server_type):
         return None
     if server_type == 'mysql':
         db_connection_str = 'mysql+mysqlconnector://{0}:{1}@{2}/{3}'.format(MySQL_User, MySQL_Password, MySQL_Host, DB_Name)
-    if server_type == 'postgre':
-        db_connection_str = 'postgresql://{0}:{1}@{2}/{3}'.format(PostgreSQL_User, PostgreSQL_Password, PostgreSQL_Host, DB_Name)
     # create db connection
     db_connection = create_engine(db_connection_str)
     return db_connection
@@ -488,9 +481,13 @@ def compare_string2(s1, s2, maxOffset=15):
         diff = float(len(s1) + len(s2)) / 2 - count
     return diff
 
-# Create DataBase for mysql and postgresql
+# Create DataBase for mysql
 def createDataBase(server_type):
     cnx = connectDataBase(server_type)
+    if cnx is None:
+        global Server_Type
+        Server_Type = "excel"
+        return
     if server_type == 'mysql':
         try:
             cursor = cnx.cursor()
@@ -504,25 +501,8 @@ def createDataBase(server_type):
         finally:
             if cnx is not None:
                 cnx.close()
-    if server_type == 'postgre':
-        try:
-            cnx.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-            cursor = cnx.cursor()
-            # check if database exists
-            cursor.execute("SELECT 1 FROM pg_catalog.pg_database WHERE datname = '" + DB_Name+"'")
-            exists = cursor.fetchone()
-            if not exists:
-                cursor.execute('CREATE DATABASE '+DB_Name)
-                cnx.commit()
-            cursor.close()
-        except DatabaseError as error:
-            print(error)
-            exit(0)
-        finally:
-            if cnx is not None:
-                cnx.close()
 
-# connect DataBase of MySQL and PostgreSQL
+# connect DataBase of MySQL
 def connectDataBase(server_type, db_name=""):
     cnx = None
     if server_type == 'mysql':
@@ -537,29 +517,13 @@ def connectDataBase(server_type, db_name=""):
             cnx = mysqlconnector.connect(**config)
         except mysqlconnector.Error as err:
             print(err)
-            exit(0)
-    if server_type == 'postgre':
-        config = {
-        'user': PostgreSQL_User,
-        'password': PostgreSQL_Password,
-        'host': PostgreSQL_Host,
-        }
-        if db_name:
-            config['dbname'] = db_name
-
-        try:
-            cnx = connect(**config)
-            cnx.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-        except DatabaseError as error:
-            print(error)
-            exit(0)
+            print("Candidates will be stored in Excel")
     return cnx 
-
-# check if Filter Criteria table exists in file or database of MySQL and PostgreSQL
+# check if Filter Criteria table exists in file or database of MySQL
 def checkExistsFilterCriteria(file_path, server_type):
     if server_type == 'excel':
         return os.path.exists(file_path)
-    else: # server_type == 'mysql' or server_type == 'postgre':
+    else: # server_type == 'mysql' 
         conn = connectDataBase(server_type, db_name=DB_Name)
         if server_type == 'mysql':
             cur = conn.cursor(buffered=True)
@@ -572,19 +536,19 @@ def checkExistsFilterCriteria(file_path, server_type):
         return bool(exists)
         
 
-# store DataFrame in excel or MySQL or PostgreSQL
+# store DataFrame in excel or MySQL
 def storeDataFrameInDB(file_path, dataframe, table_name, server_type):
     db_connection = createDBConnection(server_type)
     if server_type == 'excel':
         dataframe.to_excel(file_path, sheet_name=table_name)
-    else: # server_type == 'mysql' or server_type == 'postgre':
+    else: # server_type == 'mysql'
         dataframe.to_sql(table_name, db_connection, if_exists='replace')
 
 if __name__ == "__main__":
     # for multiprocessing
     freeze_support()
     # create DataBase
-    if Server_Type == 'mysql' or Server_Type == 'postgre':
+    if Server_Type == 'mysql':
         createDataBase(Server_Type)
 
     # Load Filter Criteria
@@ -607,6 +571,6 @@ if __name__ == "__main__":
     # Pass Filter Criteria
     Passed_df = passFilterCriteria(Duplicity_df, filter_criteria)
     # Store passed candidates into DataBase
-    storeDataFrameInDB('PassedCandidates.xlsx',  Passed_df, Candidates_TableName, Server_Type)
+    storeDataFrameInDB('passed_candidates.xlsx',  Passed_df, Candidates_TableName, Server_Type)
 
 
