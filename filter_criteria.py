@@ -10,7 +10,9 @@ import mysql.connector as mysqlconnector
 from sqlalchemy import create_engine
 from psycopg2 import connect, DatabaseError
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-
+from multiprocessing import Pool
+from multiprocessing import freeze_support
+from functools import partial
 
 # check arguments length
 if len(sys.argv) != 4:
@@ -18,6 +20,7 @@ if len(sys.argv) != 4:
 # first argv is Start Date
 # second one is End Date
 # third one is Server Type : excel, mysql, postgre
+
 Start_Date = sys.argv[1]
 End_Date = sys.argv[2]
 Server_Type = sys.argv[3].lower()
@@ -44,7 +47,7 @@ MySQL_Password = 'password'
 MySQL_Host = '127.0.0.1'
 
 # PostgreSQL configuration
-PostgreSQL_User = 'user'
+PostgreSQL_User = 'postgres'
 PostgreSQL_Password = 'password'
 PostgreSQL_Host = '127.0.0.1'
 
@@ -127,211 +130,6 @@ class FilterCriteria(object):
         df = {k : v for k, v in d.items() if k in FilterCriteria_Columns}
         return cls(**df)
 
-# Class of Candidate Value from IS Data
-class Candidate_IS_Data(object):
-    def __init__(self, Test, TS_Index, Net_Profit, Total_Trades, Profitable, Avg_Trade, Max_Intraday_Drawdown, ProfitFactor, Robustness_Index):
-        self.Test                      = Test
-        self.IS_TS_Index               = TS_Index
-        self.IS_Net_Profit             = Net_Profit
-        self.IS_Total_Trades           = Total_Trades
-        self.IS_Profitable             = Profitable
-        self.IS_Avg_Trade              = Avg_Trade
-        self.IS_Max_Intraday_Drawdown  = Max_Intraday_Drawdown
-        self.IS_ProfitFactor           = ProfitFactor
-        self.IS_Robustness_Index       = Robustness_Index
-    # calculate NPR
-    def calcNPR(self, other):
-        # 1 - (Abs(NP1 - NP2) / NP1)
-        # return 1 - float(abs(self.IS_Net_Profit - other.IS_Net_Profit)) / self.IS_Net_Profit
-
-        # initial NPR is 1.0
-        # NPR = abs(NP1/NP2), if NPR >1, then NPR = 1/NPR
-        NPR = 1
-        if self.IS_Net_Profit != 0 and other.IS_Net_Profit != 0:
-            NPR = abs(float(self.IS_Net_Profit)/other.IS_Net_Profit)
-            if NPR > 1:
-                NPR = 1.0 / NPR
-        return NPR
-    
-    # calculate TTR
-    def calcTTR(self, other):
-        # 1 - (Abs(TT1 - TT2) / TT1)
-        # return 1 - float(abs(self.IS_Total_Trades - other.IS_Total_Trades)) / self.IS_Total_Trades
-        # TTR uses the same formula as NPR
-        TTR = 1
-        if self.IS_Total_Trades != 0 and other.IS_Total_Trades != 0:
-            TTR = abs(float(self.IS_Total_Trades)/other.IS_Total_Trades)
-            if TTR > 1:
-                TTR = 1.0 / TTR
-        return TTR
-
-# Class of Candidate Value from OS Data
-class Candidate_OS_Data(object):
-    def __init__(self, Net_Profit, Total_Trades, Profitable, Avg_Trade, Max_Intraday_Drawdown, ProfitFactor, Robustness_Index):
-        self.OS_Net_Profit             = Net_Profit
-        self.OS_Total_Trades           = Total_Trades
-        self.OS_Profitable             = Profitable
-        self.OS_Avg_Trade              = Avg_Trade
-        self.OS_Max_Intraday_Drawdown  = Max_Intraday_Drawdown
-        self.OS_ProfitFactor           = ProfitFactor
-        self.OS_Robustness_Index       = Robustness_Index
-
-# Class of Candidate attributes from IS and OS Data
-class Candidate_Attribute(object):
-    def __init__(self, POI_Switch, NATR, Fract, Filter1_Switch, Filter1_N1, Filter1_N2, Filter2_Switch, Filter2_N1, Filter2_N2):
-        self.POI_Switch     = POI_Switch
-        self.NATR           = NATR
-        self.Fract          = Fract
-        self.Filter1_Switch = Filter1_Switch
-        self.Filter1_N1     = Filter1_N1
-        self.Filter1_N2     = Filter1_N2
-        self.Filter2_Switch = Filter2_Switch
-        self.Filter2_N1     = Filter2_N1
-        self.Filter2_N2     = Filter2_N2
-        self.Start_Date     = Start_Date
-        self.End_Date       = End_Date
-    def to_dict(self):
-        return {
-            'POI_Switch'        : self.POI_Switch,
-            'NATR'              : self.NATR,
-            'Fract'             : self.Fract,
-            'Filter1_Switch'    : self.Filter1_Switch,
-            'Filter1_N1'        : self.Filter1_N1,
-            'Filter1_N2'        : self.Filter1_N2,
-            'Filter2_Switch'    : self.Filter2_Switch,
-            'Filter2_N1'        : self.Filter2_N1,
-            'Filter2_N2'        : self.Filter2_N2,
-            'Start_Date'        : self.Start_Date,
-            'End_Date'          : self.End_Date,
-        }
-    # calculate IDV
-    def calcIDV(self, other):
-        # generate number's string from IS and OS attributes
-        self_s = ""
-        self_s += convertFloatString(self.POI_Switch)
-        self_s += convertFloatString(self.NATR)
-        self_s += convertFloatString(self.Fract)
-        self_s += convertFloatString(self.Filter1_Switch)
-        self_s += convertFloatString(self.Filter1_N1)
-        self_s += convertFloatString(self.Filter1_N2)
-        self_s += convertFloatString(self.Filter2_Switch)
-        self_s += convertFloatString(self.Filter2_N1)
-        self_s += convertFloatString(self.Filter2_N2)
-
-        other_s = ""
-        other_s += convertFloatString(other.POI_Switch)
-        other_s += convertFloatString(other.NATR)
-        other_s += convertFloatString(other.Fract)
-        other_s += convertFloatString(other.Filter1_Switch)
-        other_s += convertFloatString(other.Filter1_N1)
-        other_s += convertFloatString(other.Filter1_N2)
-        other_s += convertFloatString(other.Filter2_Switch)
-        other_s += convertFloatString(other.Filter2_N1)
-        other_s += convertFloatString(other.Filter2_N2)
-
-        diff = compare_string2(self_s, other_s, 15)
-        return 100 - diff
-
-
-# Class Candidate from IS and OS
-class Candidate(Candidate_Attribute, Candidate_IS_Data, Candidate_OS_Data):
-    def __init__(self, Test, POI_Switch, NATR, Fract, Filter1_Switch, Filter1_N1, Filter1_N2, Filter2_Switch, Filter2_N1, Filter2_N2,
-                IS_TS_Index, IS_Net_Profit, IS_Total_Trades, IS_Profitable, IS_Avg_Trade, IS_Max_Intraday_Drawdown, IS_ProfitFactor, IS_Robustness_Index, 
-                OS_Net_Profit, OS_Total_Trades, OS_Profitable, OS_Avg_Trade, OS_Max_Intraday_Drawdown, OS_ProfitFactor, OS_Robustness_Index):
-        Candidate_Attribute.__init__(self, POI_Switch, NATR, Fract, Filter1_Switch, Filter1_N1, Filter1_N2, Filter2_Switch, Filter2_N1, Filter2_N2)
-        Candidate_IS_Data.__init__(self,Test, IS_TS_Index, IS_Net_Profit, IS_Total_Trades, IS_Profitable, IS_Avg_Trade, IS_Max_Intraday_Drawdown, IS_ProfitFactor, IS_Robustness_Index)
-        Candidate_OS_Data.__init__(self,OS_Net_Profit, OS_Total_Trades, OS_Profitable, OS_Avg_Trade, OS_Max_Intraday_Drawdown, OS_ProfitFactor, OS_Robustness_Index)
-    # Check if candidate passes the Filter Criteria
-    def checkFilterCriteria(self, filterCriteria = FilterCriteria()):
-        # 1. IS: Net Profit > IS_NP
-        if self.IS_Net_Profit <= filterCriteria.IS_NP:  
-            return False, 0
-        # 2. OOS: Net Profit > OOS_NP
-        if self.OS_Net_Profit <= filterCriteria.OOS_NP:
-            return False, 0
-        # 3. OOS vs IS Avg Trade > ALL_Robustness_Index . Calculation \ Ie OOS Avg Trade should be at least 80% of the IS Avg Trade
-        if float(self.OS_Avg_Trade) / float(self.IS_Avg_Trade) * 100<= filterCriteria.ALL_Robustness_Index :
-            return False, 0
-        # 4. ALL: Robustness Index > ALL_Robustness_Index
-        All_Robustness_Index = self.get_ALL_Robustness_Index(self.Start_Date, self.End_Date, IS_Percent, OOS_Percent)
-        if All_Robustness_Index <= filterCriteria.ALL_Robustness_Index:
-            return False, 0
-        # 5. ALL: NP:DD Ratio > ALL_NP_DD_Ratio . Calculation:
-        #    a. ALL: NP = IS Net Profit + OOS Net Profit
-        #    b. ALL: DD = max(-IS Max Intraday Drawdown, -OOS Max Intraday Drawdown)
-        #    c. Ratio = ALL: NP / ALL: DD 
-        if self.get_All_NP_DD() <= filterCriteria.ALL_NP_DD_Ratio:
-            return False, 0
-        # 6. IS: Avg Trade > IS_Avg_Trade
-        if self.IS_Avg_Trade <= filterCriteria.IS_Avg_Trade:
-            return False, 0
-        # 7. IS: Avg trades num per year > IS_Trades_Per_Year . 
-        # Ie the average number of trades per year (365 days) should be greater than 40
-        if self.get_Avg_trades_per_year(self.Start_Date, self.End_Date, self.IS_Total_Trades, IS_Percent) <= filterCriteria.IS_Trades_Per_Year:
-            return False, 0
-        # 8. OOS: Avg trades num per year > OOS_Total_Trades . 
-        # Ie the average number of trades per year (365 days) should be greater than 40
-        if self.get_Avg_trades_per_year(self.Start_Date, self.End_Date, self.OS_Total_Trades, OOS_Percent) <= filterCriteria.OOS_Trades_Per_Year:
-            return False, 0
-        # 9. OOS: Total Trades > OOS_Total_Trades
-        if self.OS_Total_Trades <= filterCriteria.OOS_Total_Trades:
-            return False, 0
-
-        return True, round(Decimal(All_Robustness_Index),2)
-    # get Class object from Dictionary
-    @classmethod
-    def fromDict(cls, d):
-        df = {k : v for k, v in d.items() if k in Candidate_Columns}
-        return cls(**df)
-    
-    # calculate Avg trades per year
-    def get_Avg_trades_per_year(self, start, end, trades, rate=1):
-        start = parse(self.Start_Date, dayfirst=True)
-        end = parse(self.End_Date, dayfirst=True)
-        # calculate delta days between two dates
-        delta = (end - start).days
-        # Avg trades per year
-        # for now IS:OS days rate is 80:20
-        return float(trades) * 365 / (float(delta) * rate)
-
-    # calculate All Robustness_Index
-    '''
-        IS data:
-        isPart = IS Net Profit * 365 days / number of days in IS period
-        OOS data
-        oosPart = OOS Net Profit * 365 days / number of days in OOS period
-        RI = oosPart / isPart * 100
-    '''
-    def get_ALL_Robustness_Index(self, start, end, rate1=1, rate2=1):
-        start = parse(self.Start_Date, dayfirst=True)
-        end = parse(self.End_Date, dayfirst=True)
-        # calculate delta days between two dates
-        # for now IS:OS days rate is 80:20
-        delta = (end - start).days
-        isPart = float(self.IS_Net_Profit) * 365/ float(delta * rate1)
-        osPart = float(self.OS_Net_Profit) * 365/ float(delta * rate2)
-        RI = float(osPart) / isPart * 100
-        return RI
-
-    # calculate All:NP/DD
-    '''
-        ALL NP = IS Net Profit + OOS Net Profit
-        Max IS/OOS DD = whichever is greater: -1*(IS Max Intraday Drawdown) versus  -1*(OOS Max Intraday Drawdown)
-        Ratio = ALL NP / Max IS/OOS DD
-    '''
-    def get_All_NP_DD(self):
-        All_NP = self.IS_Net_Profit + self.OS_Net_Profit
-        Max_DD = max(abs(self.IS_Max_Intraday_Drawdown), abs(self.OS_Max_Intraday_Drawdown))
-        Ratio = float(All_NP) / Max_DD
-        return Ratio
-    # Duplicity = ROUND(IDV * NPR * TTR) 
-    def calcDuplicity(self, other):
-        IDV = self.calcIDV(other)
-        NPR = self.calcNPR(other)
-        TTR = self.calcTTR(other)
-        return int(IDV * NPR * TTR)
-
-
 
 # Read Data file and Create DataFrame
 class FileDataFrame(object):
@@ -358,6 +156,85 @@ class FileDataFrame(object):
         return self.df
     def setDataFrame(self, df):
         self.df = df
+
+# calculate All Robustness_Index
+'''
+    IS data:
+    isPart = IS Net Profit * 365 days / number of days in IS period
+    OOS data
+    oosPart = OOS Net Profit * 365 days / number of days in OOS period
+    RI = oosPart / isPart * 100
+'''
+def get_ALL_Robustness_Index(candidate, start, end, rate1=1, rate2=1):
+    start = parse(Start_Date, dayfirst=True)
+    end = parse(End_Date, dayfirst=True)
+    # calculate delta days between two dates
+    # for now IS:OS days rate is 80:20
+    delta = (end - start).days
+    isPart = candidate.get("IS_Net_Profit") * 365/ (delta * rate1)
+    osPart = candidate.get("OS_Net_Profit") * 365/ (delta * rate2)
+    RI = osPart / isPart * 100
+    return RI
+
+# calculate All:NP/DD
+'''
+    ALL NP = IS Net Profit + OOS Net Profit
+    Max IS/OOS DD = whichever is greater: -1*(IS Max Intraday Drawdown) versus  -1*(OOS Max Intraday Drawdown)
+    Ratio = ALL NP / Max IS/OOS DD
+'''
+def get_All_NP_DD(candidate):
+    All_NP = candidate.get("IS_Net_Profit") + candidate.get("OS_Net_Profit")
+    Max_DD = max(abs(candidate.get("IS_Max_Intraday_Drawdown")), abs(candidate.get("OS_Max_Intraday_Drawdown")))
+    Ratio = All_NP / Max_DD
+    return Ratio
+
+# calculate Avg trades per year
+def get_Avg_trades_per_year(start, end, trades, rate=1):
+    start = parse(start, dayfirst=True)
+    end = parse(end, dayfirst=True)
+    # calculate delta days between two dates
+    delta = (end - start).days
+    # Avg trades per year
+    # for now IS:OS days rate is 80:20
+    return float(trades) * 365 / (delta * rate)
+
+# Check if candidate passes the Filter Criteria
+def checkFilterCriteria(candidate, filterCriteria = FilterCriteria()):
+    # 1. IS: Net Profit > IS_NP
+    if candidate.get("IS_Net_Profit") <= filterCriteria.IS_NP:
+        return False, 0
+    # 2. OOS: Net Profit > OOS_NP
+    if candidate.get("OS_Net_Profit") <= filterCriteria.OOS_NP:
+        return False, 0
+    # 3. OOS vs IS Avg Trade > ALL_Robustness_Index . Calculation \ Ie OOS Avg Trade should be at least 80% of the IS Avg Trade
+    if candidate.get("OS_Avg_Trade") / candidate.get("IS_Avg_Trade") * 100 <= filterCriteria.ALL_Robustness_Index :
+        return False, 0
+    # 4. ALL: Robustness Index > ALL_Robustness_Index
+    All_Robustness_Index = get_ALL_Robustness_Index(candidate, Start_Date, End_Date, IS_Percent, OOS_Percent)
+    if All_Robustness_Index <= filterCriteria.ALL_Robustness_Index:
+        return False, 0
+    # 5. ALL: NP:DD Ratio > ALL_NP_DD_Ratio . Calculation:
+    #    a. ALL: NP = IS Net Profit + OOS Net Profit
+    #    b. ALL: DD = max(-IS Max Intraday Drawdown, -OOS Max Intraday Drawdown)
+    #    c. Ratio = ALL: NP / ALL: DD 
+    if get_All_NP_DD(candidate) <= filterCriteria.ALL_NP_DD_Ratio:
+        return False, 0
+    # 6. IS: Avg Trade > IS_Avg_Trade
+    if candidate.get("IS_Avg_Trade") <= filterCriteria.IS_Avg_Trade:
+        return False, 0
+    # 7. IS: Avg trades num per year > IS_Trades_Per_Year . 
+    # Ie the average number of trades per year (365 days) should be greater than 40
+    if get_Avg_trades_per_year(Start_Date, End_Date, candidate.get("IS_Total_Trades"), IS_Percent) <= filterCriteria.IS_Trades_Per_Year:
+        return False, 0
+    # 8. OOS: Avg trades num per year > OOS_Total_Trades . 
+    # Ie the average number of trades per year (365 days) should be greater than 40
+    if get_Avg_trades_per_year(Start_Date, End_Date, candidate.get("OS_Total_Trades"), OOS_Percent) <= filterCriteria.OOS_Trades_Per_Year:
+        return False, 0
+    # 9. OOS: Total Trades > OOS_Total_Trades
+    if candidate.get("OS_Total_Trades") <= filterCriteria.OOS_Total_Trades:
+        return False, 0
+
+    return True, round(Decimal(All_Robustness_Index),2)
 
 # get Filter Criteria from file
 def getFilterCriteriaFromDB(file_path, server_type):
@@ -401,6 +278,7 @@ def createDBConnection(server_type):
 def renameCandidateDataFrame(dataframe, columns):
     dataframe.columns = columns
 
+
 # build Candidate from IS and OS data
 
 # from IS data
@@ -440,18 +318,31 @@ def buildCandidateByTEST(IS_object, OS_object):
     # get DataFrame from IS and OS data
     IS_df = IS_object.getDataFrame()
     OS_df = OS_object.getDataFrame()
+
     # get needed IS and OS DataFrame by Column name list
     new_IS_df = IS_df[Candidate_Attribute_Columns + Candidate_IS_Data_Columns]
     new_OS_df = OS_df[Candidate_OS_Data_Columns]
+
     # rename DataFrame columns. e.g. 'IS TS Index'=>'IS_TS_Index'
     renameCandidateDataFrame(new_IS_df, New_Candidate_IS_Data_Columns)
     renameCandidateDataFrame(new_OS_df, NEW_Candidate_OS_Data_Columns)
+
     # get Candidates DataFrame by concatenating IS and OS DataFrame using Test key
     Candidates_df = pd.concat([new_IS_df.set_index('Test'), new_OS_df.set_index('Test')], axis=1, join='inner')
+    # rounding DataFrame
     Candidates_df = Candidates_df.round(2)
+
+    # convert value to floatString. e.g. 3.0 => "3", 1.10 => "1.1"
+    Candidates_df["POI_Switch"] = Candidates_df['POI_Switch'].map('{0:g}'.format)
+
+    # create Attributes Column from Candidate Attributes
+    Candidates_df["Attributes"] = Candidates_df.apply(lambda row: "".join([str(row.POI_Switch), str(row.NATR), str(row.Fract), str(row.Filter1_Switch), \
+        str(row.Filter1_N1), str(row.Filter1_N2), str(row.Filter2_Switch), str(row.Filter2_N1), str(row.Filter2_N2)]), axis=1)
+    
     Candidates_df.insert(0, column ='Test', value = Candidates_df.index)
     Candidates_df = Candidates_df.reset_index(drop=True)
-    #, 'IS_Avg_Trade', 'IS_Profitable'
+
+    #Sort by 'IS TS Index' descending order, 'Test' ascending order
     Candidates_df = Candidates_df.sort_values(['IS_TS_Index', 'Test'], ascending=[False, True], ignore_index=True)
     # store Candidates into file
     return Candidates_df
@@ -465,10 +356,9 @@ def passFilterCriteria(df, criteria):
     # All Robustness Index list which passed Filter Critria
     All_Robustness_Index_List = []
     for row in df_dict: # loop Dictionary list
-        # get Candidate object from Dictionary item
-        ob = Candidate.fromDict(row)
         # check if Candidate passes Filter Criteria
-        isPassFilterCriteria, All_Robustness_Index = ob.checkFilterCriteria(criteria)
+        # isPassFilterCriteria, All_Robustness_Index = ob.checkFilterCriteria(criteria)
+        isPassFilterCriteria, All_Robustness_Index = checkFilterCriteria(row)
         if isPassFilterCriteria: # if it passes, append it
             passed_candidates.append(row)
             All_Robustness_Index_List.append(All_Robustness_Index)
@@ -502,40 +392,63 @@ def calcDuplicity(df, criteria):
     # convert DataFrame into Dictionary list
     df_dict = df.T.to_dict().values()
     df_list = list(df_dict)
-    duplicity_list = []
-    for i, row in enumerate(df_list): # loop Dictionary list
-        # get Candidate object from Dictionary item
-        ob = Candidate.fromDict(row)
-        # get start and end position from current position
-        if i < 1:
-            duplicity_list.append(0)
-            continue
-        start_p, end_p = getBoundaryOfCandidate(i, len(df_list))
-        if i > 150:
-            end = 1
-        k = start_p 
-        max_duplicity = 0 # max duplicity value
-        while k <= end_p: # loop from start to end position of Candidates
-            # if k != i: # shouldn't compare with self
-            # convert dict_values to list and get kth list
-            # get Candidate Class object
-            other = Candidate.fromDict(df_list[k])
-            # calcuate Duplicity
-            duplicity = ob.calcDuplicity(other)
-            # update max duplicity
-            if duplicity > max_duplicity:
-                max_duplicity = duplicity
-            k += 1
-        duplicity_list.append(max_duplicity)
+    index_list = range(len(df_list))
+
+    # Create 4 Processing 
+    pool = Pool(4)
+    duplicity_list = pool.map(partial(processDuplicity, df_list), index_list) # Returns a list
+
     # Add Duplicity Column in DataFrame
     df.insert(loc=1, column ='Duplicity', value= duplicity_list)
+    df = df.drop(columns='Attributes')
     return df
 
-# calc boundary of current Candidate, i.e. start position and end position
-def getBoundaryOfCandidate(index, length):
-    start = max(index - Duplicity_Candidate_Count, 0)
-    end = index - 1
-    return start, end
+# multiprocessing for calculating Duplicity
+def processDuplicity(df_list, i):
+    # current row
+    cur = df_list[i]
+    # get start and end position from current position
+    if i < 1:
+        return 0
+    # calc boundary of current Candidate, i.e. start position and end position
+    start_p = max(i - Duplicity_Candidate_Count, 0)
+    end_p = i - 1
+
+    k = start_p 
+    max_duplicity = 0 # max duplicity value
+    while k <= end_p: # loop from start to end position of Candidates
+
+        # calcuate Duplicity with kth Candidate
+        duplicity = calcDuplicity_TwoCandidates(cur, df_list[k])
+        # update max duplicity
+        if duplicity > max_duplicity:
+            max_duplicity = duplicity
+        k += 1
+    return max_duplicity
+
+def calcDuplicity_TwoCandidates(cur, other):
+    # calculate IDV
+    # 100 - difference between attributes of two candidates
+    IDV = 100 - compare_string2(cur.get("Attributes"), other.get("Attributes"), 15)
+    
+    # calculate NPR
+    # initial NPR is 1.0
+    # NPR = abs(NP1/NP2), if NPR >1, then NPR = 1/NPR
+
+    NPR = 1
+    if cur.get("IS_Net_Profit") != 0 and other.get("IS_Net_Profit") != 0:
+        NPR = abs(cur.get("IS_Net_Profit")/other.get("IS_Net_Profit"))
+        if NPR > 1:
+            NPR = 1.0 / NPR
+
+    # calculate TTR
+    # TTR uses the same formula as NPR    
+    TTR = 1
+    if cur.get("IS_Total_Trades") != 0 and other.get("IS_Total_Trades") != 0:
+        TTR = abs(cur.get("IS_Total_Trades")/other.get("IS_Total_Trades"))
+        if TTR > 1:
+            TTR = 1.0 / TTR
+    return int(IDV * NPR * TTR)
 
 # compare two string from Candidate Attributes  "5250.9114104124", "3501.6534161629204"
 # and get the count of common charactors.
@@ -586,6 +499,7 @@ def createDataBase(server_type):
             cursor.close()
         except mysqlconnector.Error as err:
             print(err)
+            exit(0)
         finally:
             if cnx is not None:
                 cnx.close()
@@ -602,6 +516,7 @@ def createDataBase(server_type):
             cursor.close()
         except DatabaseError as error:
             print(error)
+            exit(0)
         finally:
             if cnx is not None:
                 cnx.close()
@@ -621,6 +536,7 @@ def connectDataBase(server_type, db_name=""):
             cnx = mysqlconnector.connect(**config)
         except mysqlconnector.Error as err:
             print(err)
+            exit(0)
     if server_type == 'postgre':
         config = {
         'user': PostgreSQL_User,
@@ -634,7 +550,8 @@ def connectDataBase(server_type, db_name=""):
             cnx = connect(**config)
             cnx.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
         except DatabaseError as error:
-            print(error)     
+            print(error)
+            exit(0)
     return cnx 
 
 # check if Filter Criteria table exists in file or database of MySQL and PostgreSQL
@@ -654,11 +571,6 @@ def checkExistsFilterCriteria(file_path, server_type):
         return bool(exists)
         
 
-
-# convert value to floatString. e.g. 3.0 => "3", 1.10 => "1.1"
-def convertFloatString(value):
-    return ('%f' % value).rstrip('0').rstrip('.')
-
 # store DataFrame in excel or MySQL or PostgreSQL
 def storeDataFrameInDB(file_path, dataframe, table_name, server_type):
     db_connection = createDBConnection(server_type)
@@ -668,7 +580,8 @@ def storeDataFrameInDB(file_path, dataframe, table_name, server_type):
         dataframe.to_sql(table_name, db_connection, if_exists='replace')
 
 if __name__ == "__main__":
-
+    # for multiprocessing
+    freeze_support()
     # create DataBase
     if Server_Type == 'mysql' or Server_Type == 'postgre':
         createDataBase(Server_Type)
@@ -683,14 +596,13 @@ if __name__ == "__main__":
     IS_object.renameColumnsOfDataFrame()
     OS_object.readDataFrameFromFile()
     OS_object.renameColumnsOfDataFrame()
-
     # Merge IS and OS by Test index
     Candidates_df = buildCandidateByTEST(IS_object, OS_object)
 
     # Calculate Duplicity
     Duplicity_df = calcDuplicity(Candidates_df, filter_criteria)
     # storeDataFrameInDB('calcDuplicity.xlsx', Duplicity_df, 'duplicity', Server_Type)
-    
+
     # Pass Filter Criteria
     Passed_df = passFilterCriteria(Duplicity_df, filter_criteria)
     # Store passed candidates into DataBase
