@@ -73,9 +73,9 @@ NEW_Candidate_OS_Data_Columns = ['Test', 'OS_Net_Profit', 'OS_Total_Trades', 'OS
 # Class of Filter Criteria
 class FilterCriteria(object):
     # constructor
-    def __init__(self, IS_NP = 0, OOS_NP = 0, OOS_IS_Avg_Trade=80, 
-                 ALL_Robustness_Index = 80, ALL_NP_DD_Ratio = 2, IS_Avg_Trade = 60, IS_Trades_Per_Year = 40,
-                OOS_Trades_Per_Year = 40, OOS_Total_Trades = 10, Duplicity= 90):
+    def __init__(self, IS_NP = 0, OOS_NP = 0, OOS_IS_Avg_Trade=70, 
+                 ALL_Robustness_Index = 60, ALL_NP_DD_Ratio = 1, IS_Avg_Trade = 60, IS_Trades_Per_Year = 40,
+                OOS_Trades_Per_Year = 40, OOS_Total_Trades = 10, Duplicity= 95):
         self.IS_NP                  = IS_NP
         self.OOS_NP                 = OOS_NP
         self.OOS_IS_Avg_Trade       = OOS_IS_Avg_Trade
@@ -396,7 +396,7 @@ def calcDuplicity(df, criteria):
     index_list = range(len(df_list))
 
     # Create 4 Processing 
-    pool = Pool(4)
+    pool = Pool(6)
     duplicity_list = pool.map(partial(processDuplicity, df_list), index_list) # Returns a list
 
     # Add Duplicity Column in DataFrame
