@@ -36,10 +36,10 @@ OOS_Result_File = 'OOS.txt'
 
 
 # DataBase Name
-DB_Name = 'candidatesdb'
+DB_Name = 'sfa'
 # Table Name
-FilterCriteria_TableName = "filtercriteria"
-Candidates_TableName = "candidates"
+FilterCriteria_TableName = "main_filtercriteria"
+Candidates_TableName = "main_candidate"
 
 # MySQL configuration
 MySQL_User = 'user'
@@ -113,12 +113,19 @@ class FilterCriteria(object):
     def getFilterCriteriaFromDB(cls, file_path, table_name="filtercriteria", server_type='excel', con=None):
         exists = checkExistsFilterCriteria(file_path, server_type)
         if exists:
+            criteria = None
             if server_type == 'excel':
                 criteria = pd.read_excel(file_path, sheet_name=table_name)
-                return criteria            
+                
             else: # server_type == 'mysql' 
-                criteria = pd.read_sql("select * from " + FilterCriteria_TableName ,con=con)
-                return criteria
+                criteria = pd.read_sql("select * from " + table_name ,con=con)
+            criteria = criteria.drop(["FieldType"], axis = 1)
+            criteria = criteria.T
+            criteria = criteria.drop(criteria.index[0])
+            new_header = criteria.iloc[0]
+            criteria = criteria[1:]
+            criteria.columns = new_header 
+            return criteria
         return None
         
     @classmethod

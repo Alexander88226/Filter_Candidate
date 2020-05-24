@@ -9,7 +9,7 @@ MySQL_Password = 'password'
 MySQL_Host = '127.0.0.1'
 
 # DataBase Name
-DB_Name = 'candidatesdb'
+DB_Name = 'sfa'
 
 
 
